@@ -28,7 +28,7 @@
 #define GEAR_RATIO 9.6f
 #define ENCODER_COUNTS_PER_OUTPUT_REV (ENCODER_PPR_MOTOR_REV * 4.0f * GEAR_RATIO)
 #define SPEED_SAMPLE_MS 200U
-#define SPEED_STEP_RPM 20.0f
+#define SPEED_STEP_RPM 50.0f
 #define MAX_TARGET_RPM 625.0f /* 6000 rpm motor / 9.6 gearbox */
 #define PWM_MIN 10U /* driver minimum allowed duty: 10% */
 #define PWM_MAX 99U  
@@ -55,8 +55,8 @@ float target_rpm = 0.0f;       // 目标转速
 float pwm_output = 0.0f;       // PID计算出的PWM输出
 
 // --- PID 参数 (需根据实际电机调试) ---
-float Kp = 0.08f;
-float Ki = 0.04f;
+float Kp = 0.12f;
+float Ki = 0.08f;
 float integral = 0.0f;
 float filtered_rpm = 0.0f;
 uint32_t motor_start_tick = 0;   
@@ -176,7 +176,7 @@ int main(void)
     // RPM = (脉冲差 / 每圈总脉冲) * (60秒 / 0.05秒)
     measured_rpm = ((float)diff_cnt * 60000.0f) / (ENCODER_COUNTS_PER_OUTPUT_REV * SPEED_SAMPLE_MS);
     if (measured_rpm < 0) measured_rpm = -measured_rpm;
-    filtered_rpm = 0.35f * measured_rpm + 0.65f * filtered_rpm;
+    filtered_rpm = 0.55f * measured_rpm + 0.45f * filtered_rpm;
 
     // ---------------- 3. 执行 PID 控制 ----------------
     if (target_rpm > 0.0f) {
