@@ -1,0 +1,335 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <stdarg.h>
+#include <string.h>
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+// 减速比 9.6，基础脉冲 11PPR，4倍频 -> 11 * 4 * 9.6 = 422.4
+#define ENCODER_PPR_MOTOR_REV 11.0f /* datasheet: 11PPR per motor revolution */
+#define GEAR_RATIO 9.6f
+#define ENCODER_COUNTS_PER_OUTPUT_REV (ENCODER_PPR_MOTOR_REV * 4.0f * GEAR_RATIO)
+#define SPEED_SAMPLE_MS 200U
+#define SPEED_STEP_RPM 20.0f
+#define MAX_TARGET_RPM 625.0f /* 6000 rpm motor / 9.6 gearbox */
+#define PWM_MIN 10U /* driver minimum allowed duty: 10% */
+#define PWM_MAX 99U  
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
+UART_HandleTypeDef huart1;
+
+/* USER CODE BEGIN PV */
+uint8_t key1_flag = 0;
+uint8_t key2_flag = 0;
+
+// --- 测速与PID相关变量 ---
+uint16_t last_encoder_cnt = 0;  // 上一次的编码器值
+float measured_rpm = 0.0f;     // 实测转速
+float target_rpm = 0.0f;       // 目标转速
+float pwm_output = 0.0f;       // PID计算出的PWM输出
+
+// --- PID 参数 (需根据实际电机调试) ---
+float Kp = 0.08f;
+float Ki = 0.04f;
+float integral = 0.0f;
+float filtered_rpm = 0.0f;
+uint32_t motor_start_tick = 0;   
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_USART1_UART_Init(void);
+/* USER CODE BEGIN PFP */
+void Motor_SetSpeed(uint16_t duty);
+void UART_Printf(const char *format, ...);
+float PID_Calc(float target, float actual);
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+
+// 自定义串口打印 (替代 printf)
+void UART_Printf(const char *format, ...)
+{
+    char buffer[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+}
+
+// 电机速度控制函数
+void Motor_SetSpeed(uint16_t duty)
+{
+    if (duty > PWM_MAX) duty = PWM_MAX;
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, duty);
+}
+
+// 增量式 PID 控制函数
+float PID_Calc(float target, float actual)
+{
+    float error = target - actual;
+    float feed_forward = 10.0f + 0.10f * target;
+    integral += Ki * error * ((float)SPEED_SAMPLE_MS / 1000.0f);
+    if (integral > 35.0f) integral = 35.0f;
+    if (integral < -20.0f) integral = -20.0f;
+    float out = feed_forward + Kp * error + integral;
+    if (out > PWM_MAX) out = PWM_MAX;
+    if (out < PWM_MIN) out = PWM_MIN;
+    return out;
+}
+/* USER CODE END 0 */
+
+int main(void)
+{
+  HAL_Init();
+  SystemClock_Config();
+  MX_GPIO_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_USART1_UART_Init();
+
+  /* USER CODE BEGIN 2 */
+  // 1. 启动 PWM
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
+  
+  // 2. 启动编码器
+  HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+  __HAL_TIM_SET_COUNTER(&htim3, 0);
+  last_encoder_cnt = 0;
+  
+  // 3. 初始化电机停止
+  Motor_SetSpeed(0);
+  
+  UART_Printf("System Ready. Closed-Loop PID Control.\r\n");
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  while (1)
+  {
+    /* USER CODE BEGIN 3 */
+      
+    // ---------------- 1. 按键设定目标转速 ----------------
+    // PB1 目标转速 +100
+    if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET) {
+        if (key1_flag == 0) {
+            HAL_Delay(20);
+            if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET) {
+                key1_flag = 1;
+                target_rpm += SPEED_STEP_RPM;
+                if (target_rpm > MAX_TARGET_RPM) target_rpm = MAX_TARGET_RPM; // 设定上限
+                HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0); // 翻转LED
+            }
+        }
+    } else { key1_flag = 0; }
+
+    // PB11 目标转速 -100
+    if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) == GPIO_PIN_RESET) {
+        if (key2_flag == 0) {
+            HAL_Delay(20);
+            if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) == GPIO_PIN_RESET) {
+                key2_flag = 1;
+                target_rpm -= SPEED_STEP_RPM;
+                if (target_rpm < 0.0f) target_rpm = 0.0f;
+            }
+        }
+    } else { key2_flag = 0; }
+
+    // ---------------- 2. 测速计算 (50ms周期) ----------------
+    uint16_t current_cnt = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+    int16_t diff_cnt = (int16_t)(current_cnt - last_encoder_cnt);
+    last_encoder_cnt = current_cnt;
+    
+    // RPM = (脉冲差 / 每圈总脉冲) * (60秒 / 0.05秒)
+    measured_rpm = ((float)diff_cnt * 60000.0f) / (ENCODER_COUNTS_PER_OUTPUT_REV * SPEED_SAMPLE_MS);
+    if (measured_rpm < 0) measured_rpm = -measured_rpm;
+    filtered_rpm = 0.35f * measured_rpm + 0.65f * filtered_rpm;
+
+    // ---------------- 3. 执行 PID 控制 ----------------
+    if (target_rpm > 0.0f) {
+        if (motor_start_tick == 0U) motor_start_tick = HAL_GetTick();
+        float new_pwm = PID_Calc(target_rpm, filtered_rpm);
+        if ((HAL_GetTick() - motor_start_tick) < 300U && new_pwm < 25.0f) new_pwm = 25.0f;
+        pwm_output = new_pwm;
+        Motor_SetSpeed((uint16_t)new_pwm);
+    } else {
+        Motor_SetSpeed(0);
+        pwm_output = 0.0f; // 清除累加器
+    }
+
+    // ---------------- 4. 串口打印 ----------------
+    UART_Printf("Target: %.0f RPM | Actual: %.1f RPM | PWM: %.1f\r\n", 
+                target_rpm, measured_rpm, pwm_output);
+    
+    // ---------------- 5. 固定控制周期 ----------------
+    HAL_Delay(SPEED_SAMPLE_MS); 
+    /* USER CODE END 3 */
+  }
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) { Error_Handler(); }
+  
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) { Error_Handler(); }
+}
+
+// TIM2 PWM 初始化
+static void MX_TIM2_Init(void)
+{
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 35;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 99;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK) { Error_Handler(); }
+  
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) { Error_Handler(); }
+  
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK) { Error_Handler(); }
+  
+  HAL_TIM_MspPostInit(&htim2);
+}
+
+// TIM3 编码器初始化
+static void MX_TIM3_Init(void)
+{
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 65535;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 0;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 0;
+  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK) { Error_Handler(); }
+  
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK) { Error_Handler(); }
+}
+
+// USART1 初始化
+static void MX_USART1_UART_Init(void)
+{
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK) { Error_Handler(); }
+}
+
+// GPIO 初始化
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+}
+
+void Error_Handler(void)
+{
+  __disable_irq();
+  while (1) {}
+}
