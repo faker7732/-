@@ -8,6 +8,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "oled_ssd1306.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -43,6 +44,7 @@
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 UART_HandleTypeDef huart1;
+I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
 uint8_t key1_flag = 0;
@@ -69,6 +71,7 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void Motor_SetSpeed(uint16_t duty);
 void UART_Printf(const char *format, ...);
@@ -121,6 +124,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_USART1_UART_Init();
+  MX_I2C1_Init();
+  OLED_Init();
 
   /* USER CODE BEGIN 2 */
   // 1. 启动 PWM
@@ -138,66 +143,30 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Infinite loop */
+  uint32_t last_sample_tick = HAL_GetTick();
   while (1)
   {
-    /* USER CODE BEGIN 3 */
-      
-    // ---------------- 1. 按键设定目标转速 ----------------
-    // PB1 目标转速 +100
     if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET) {
-        if (key1_flag == 0) {
-            HAL_Delay(20);
-            if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET) {
-                key1_flag = 1;
-                target_rpm += SPEED_STEP_RPM;
-                if (target_rpm > MAX_TARGET_RPM) target_rpm = MAX_TARGET_RPM; // 设定上限
-                HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0); // 翻转LED
-            }
-        }
-    } else { key1_flag = 0; }
-
-    // PB11 目标转速 -100
+      if (!key1_flag) { HAL_Delay(20); if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1) == GPIO_PIN_RESET) { key1_flag=1; target_rpm+=SPEED_STEP_RPM; if(target_rpm>MAX_TARGET_RPM) target_rpm=MAX_TARGET_RPM; HAL_GPIO_TogglePin(GPIOA,GPIO_PIN_0); } }
+    } else key1_flag=0;
     if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) == GPIO_PIN_RESET) {
-        if (key2_flag == 0) {
-            HAL_Delay(20);
-            if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) == GPIO_PIN_RESET) {
-                key2_flag = 1;
-                target_rpm -= SPEED_STEP_RPM;
-                if (target_rpm < 0.0f) target_rpm = 0.0f;
-            }
-        }
-    } else { key2_flag = 0; }
-
-    // ---------------- 2. 测速计算 (50ms周期) ----------------
-    uint16_t current_cnt = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
-    int16_t diff_cnt = (int16_t)(current_cnt - last_encoder_cnt);
-    last_encoder_cnt = current_cnt;
-    
-    // RPM = (脉冲差 / 每圈总脉冲) * (60秒 / 0.05秒)
-    measured_rpm = ((float)diff_cnt * 60000.0f) / (ENCODER_COUNTS_PER_OUTPUT_REV * SPEED_SAMPLE_MS);
-    if (measured_rpm < 0) measured_rpm = -measured_rpm;
-    filtered_rpm = 0.55f * measured_rpm + 0.45f * filtered_rpm;
-
-    // ---------------- 3. 执行 PID 控制 ----------------
-    if (target_rpm > 0.0f) {
-        if (motor_start_tick == 0U) motor_start_tick = HAL_GetTick();
-        float new_pwm = PID_Calc(target_rpm, filtered_rpm);
-        if ((HAL_GetTick() - motor_start_tick) < 300U && new_pwm < 25.0f) new_pwm = 25.0f;
-        pwm_output = new_pwm;
-        Motor_SetSpeed((uint16_t)new_pwm);
-    } else {
-        Motor_SetSpeed(0);
-        pwm_output = 0.0f; // 清除累加器
+      if (!key2_flag) { HAL_Delay(20); if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_11) == GPIO_PIN_RESET) { key2_flag=1; target_rpm-=SPEED_STEP_RPM; if(target_rpm<0.0f) target_rpm=0.0f; } }
+    } else key2_flag=0;
+    if ((HAL_GetTick()-last_sample_tick)>=SPEED_SAMPLE_MS) {
+      last_sample_tick+=SPEED_SAMPLE_MS;
+      uint16_t current_cnt=(uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+      int16_t diff_cnt=(int16_t)(current_cnt-last_encoder_cnt); last_encoder_cnt=current_cnt;
+      measured_rpm=((float)diff_cnt*60000.0f)/(ENCODER_COUNTS_PER_OUTPUT_REV*SPEED_SAMPLE_MS);
+      if(measured_rpm<0) measured_rpm=-measured_rpm;
+      filtered_rpm=0.55f*measured_rpm+0.45f*filtered_rpm;
+      if(target_rpm>0.0f){ if(motor_start_tick==0U) motor_start_tick=HAL_GetTick(); float new_pwm=PID_Calc(target_rpm,filtered_rpm); if((HAL_GetTick()-motor_start_tick)<300U&&new_pwm<25.0f)new_pwm=25.0f; pwm_output=new_pwm; Motor_SetSpeed((uint16_t)new_pwm); }
+      else { Motor_SetSpeed(0); integral=0; filtered_rpm=0; motor_start_tick=0; pwm_output=0; }
+      UART_Printf("Target: %.0f RPM | Actual: %.1f RPM | PWM: %.1f\r\n",target_rpm,measured_rpm,pwm_output);
+      OLED_ShowStatus(target_rpm,measured_rpm,pwm_output);
     }
-
-    // ---------------- 4. 串口打印 ----------------
-    UART_Printf("Target: %.0f RPM | Actual: %.1f RPM | PWM: %.1f\r\n", 
-                target_rpm, measured_rpm, pwm_output);
-    
-    // ---------------- 5. 固定控制周期 ----------------
-    HAL_Delay(SPEED_SAMPLE_MS); 
-    /* USER CODE END 3 */
+    HAL_Delay(5);
   }
+    /* USER CODE END 3 */
 }
 
 /**
@@ -299,6 +268,15 @@ static void MX_USART1_UART_Init(void)
 }
 
 // GPIO 初始化
+static void MX_I2C1_Init(void)
+{
+  hi2c1.Instance=I2C1; hi2c1.Init.ClockSpeed=100000; hi2c1.Init.DutyCycle=I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1=0; hi2c1.Init.AddressingMode=I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode=I2C_DUALADDRESS_DISABLE; hi2c1.Init.OwnAddress2=0;
+  hi2c1.Init.GeneralCallMode=I2C_GENERALCALL_DISABLE; hi2c1.Init.NoStretchMode=I2C_NOSTRETCH_DISABLE;
+  if(HAL_I2C_Init(&hi2c1)!=HAL_OK) Error_Handler();
+}
+
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};

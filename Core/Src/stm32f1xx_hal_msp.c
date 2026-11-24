@@ -63,6 +63,18 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
                     /**
   * Initializes the Global MSP.
   */
+
+void HAL_I2C_MspInit(I2C_HandleTypeDef* hi2c)
+{
+  GPIO_InitTypeDef GPIO_InitStruct={0};
+  if(hi2c->Instance==I2C1){
+    __HAL_RCC_GPIOB_CLK_ENABLE(); __HAL_RCC_I2C1_CLK_ENABLE();
+    GPIO_InitStruct.Pin=GPIO_PIN_6|GPIO_PIN_7; GPIO_InitStruct.Mode=GPIO_MODE_AF_OD;
+    GPIO_InitStruct.Pull=GPIO_PULLUP; GPIO_InitStruct.Speed=GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOB,&GPIO_InitStruct);
+  }
+}
+
 void HAL_MspInit(void)
 {
   /* USER CODE BEGIN MspInit 0 */
