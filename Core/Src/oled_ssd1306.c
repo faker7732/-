@@ -36,6 +36,7 @@ static void glyph(char c, uint8_t g[5]) {
  }
  memcpy(g,p,5);
 }
-static void line(uint8_t page,const char *s){uint8_t col=0,g[5],i,buf[129];buf[0]=0x40;while(*s&&col<128){glyph(*s++,g);for(i=0;i<5&&col<128;i++)buf[++col]=g[i];if(col<128)buf[++col]=0;}while(col<128)buf[++col]=0;set_pos(page,0);HAL_I2C_Master_Transmit(&hi2c1,OLED_ADDR,buf,129,50U);}
+static uint8_t draw_text(uint8_t page,uint8_t col,const char *s){uint8_t g[5],i,buf[129],n=0;buf[0]=0x40;while(*s&&col<128U){glyph(*s++,g);for(i=0;i<5U&&col<128U;i++,col++)buf[++n]=g[i];if(col<128U){buf[++n]=0;col++;}}set_pos(page,(uint8_t)(col-n));HAL_I2C_Master_Transmit(&hi2c1,OLED_ADDR,buf,(uint16_t)(n+1U),50U);return n;}
 void OLED_Init(void){static const uint8_t init[]={0xAE,0xD5,0x80,0xA8,0x3F,0xD3,0,0x40,0x8D,0x14,0x20,0x02,0xA1,0xC8,0xDA,0x12,0x81,0x7F,0xD9,0xF1,0xDB,0x40,0xA4,0xA6,0xAF};HAL_Delay(100);command_list(init,sizeof(init));}
-void OLED_ShowStatus(float target,float actual,float pwm){char a[24],b[24],c[24]; snprintf(a,sizeof(a),"TARGET:%3.0f RPM",target); snprintf(b,sizeof(b),"ACTUAL:%5.1f RPM",actual); snprintf(c,sizeof(c),"PWM:%3.0f%%",pwm); line(0,a);line(2,b);line(4,c);}
+static void clear_page(uint8_t page){uint8_t b[129];memset(&b[1],0,128);b[0]=0x40;set_pos(page,0);HAL_I2C_Master_Transmit(&hi2c1,OLED_ADDR,b,129,50U);}
+void OLED_ShowStatus(float target,float actual,float pwm){char actual_text[24],target_text[16],pwm_text[16];uint8_t width;snprintf(actual_text,sizeof(actual_text),"ACTUAL: %.1f RPM",actual);snprintf(target_text,sizeof(target_text),"T:%3.0f",target);snprintf(pwm_text,sizeof(pwm_text),"PWM:%3.0f%%",pwm);width=(uint8_t)(strlen(actual_text)*6U);clear_page(0);clear_page(3);draw_text(0,(uint8_t)((128U-width)/2U),actual_text);draw_text(3,0,target_text);draw_text(3,80,pwm_text);}
