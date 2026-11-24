@@ -9,7 +9,7 @@ static void command_list(const uint8_t *cmd, uint16_t n) {
   uint8_t buf[32]; if(n>31U)n=31U; buf[0]=0x00; memcpy(&buf[1],cmd,n);
   HAL_I2C_Master_Transmit(&hi2c1,OLED_ADDR,buf,n+1U,50U);
 }
-static void command(uint8_t c){ command_list(&c,1U); }
+static void clear_page(uint8_t page);
 static void set_pos(uint8_t page,uint8_t col){uint8_t c[3]={(uint8_t)(0xB0U|page),(uint8_t)(col&0x0FU),(uint8_t)(0x10U|(col>>4))};command_list(c,3U);}
 
 /* 5x7 ASCII glyphs for status labels, digits and punctuation. */
