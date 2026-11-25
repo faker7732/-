@@ -76,34 +76,15 @@ static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void Motor_SetSpeed(uint16_t duty);
-void VOFA_SendSpeed(float actual, float target);
-float PID_Calc(float target, float actual);
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-// 自定义串口打印 (替代 printf)
 void VOFA_SendSpeed(float actual, float target)
 {
-    static uint8_t packet[12];
-    float values[2];
-    uint32_t marker = 0x7F800000U;
+    static uint8_t tx_buffer[48];
+    int length;
     if (huart1.gState != HAL_UART_STATE_READY) return;
-    values[0] = (float)((int32_t)(actual * 10.0f + 0.5f)) / 10.0f;
-    values[1] = (float)((int32_t)(target * 10.0f + 0.5f)) / 10.0f;
-    memcpy(packet, values, 8);
-    memcpy(&packet[8], &marker, 4);
-    HAL_UART_Transmit_DMA(&huart1, packet, sizeof(packet));
-}
-
-// 电机速度控制函数
-void Motor_SetSpeed(uint16_t duty)
-{
-    if (duty > PWM_MAX) duty = PWM_MAX;
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, duty);
+    length = snprintf((char *)tx_buffer, sizeof(tx_buffer), "%.1f,%.1f\n", actual, target);
+    if (length > 0 && length < (int)sizeof(tx_buffer)) {
+        HAL_UART_Transmit_DMA(&huart1, tx_buffer, (uint16_t)length);
+    }
 }
 
 // 增量式 PID 控制函数
