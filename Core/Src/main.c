@@ -44,6 +44,7 @@
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 UART_HandleTypeDef huart1;
+DMA_HandleTypeDef hdma_usart1_tx;
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
@@ -56,7 +57,7 @@ float measured_rpm = 0.0f;     // 实测转速
 float target_rpm = 0.0f;       // 目标转速
 float pwm_output = 0.0f;       // PID计算出的PWM输出
 
-// --- PID 参数 (需根据实际电机调试) ---
+// --- PID 参数  ---
 float Kp = 0.12f;
 float Ki = 0.08f;
 float integral = 0.0f;
@@ -71,10 +72,11 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void Motor_SetSpeed(uint16_t duty);
-void UART_Printf(const char *format, ...);
+void VOFA_SendSpeed(float actual, float target);
 float PID_Calc(float target, float actual);
 /* USER CODE END PFP */
 
@@ -82,14 +84,17 @@ float PID_Calc(float target, float actual);
 /* USER CODE BEGIN 0 */
 
 // 自定义串口打印 (替代 printf)
-void UART_Printf(const char *format, ...)
+void VOFA_SendSpeed(float actual, float target)
 {
-    char buffer[128];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+    static uint8_t packet[12];
+    float values[2];
+    uint32_t marker = 0x7F800000U;
+    if (huart1.gState != HAL_UART_STATE_READY) return;
+    values[0] = (float)((int32_t)(actual * 10.0f + 0.5f)) / 10.0f;
+    values[1] = (float)((int32_t)(target * 10.0f + 0.5f)) / 10.0f;
+    memcpy(packet, values, 8);
+    memcpy(&packet[8], &marker, 4);
+    HAL_UART_Transmit_DMA(&huart1, packet, sizeof(packet));
 }
 
 // 电机速度控制函数
@@ -123,6 +128,7 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_I2C1_Init();
   OLED_Init();
@@ -139,7 +145,7 @@ int main(void)
   // 3. 初始化电机停止
   Motor_SetSpeed(0);
   
-  UART_Printf("System Ready. Closed-Loop PID Control.\r\n");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -161,7 +167,7 @@ int main(void)
       filtered_rpm=0.55f*measured_rpm+0.45f*filtered_rpm;
       if(target_rpm>0.0f){ if(motor_start_tick==0U) motor_start_tick=HAL_GetTick(); float new_pwm=PID_Calc(target_rpm,filtered_rpm); if((HAL_GetTick()-motor_start_tick)<300U&&new_pwm<25.0f)new_pwm=25.0f; pwm_output=new_pwm; Motor_SetSpeed((uint16_t)new_pwm); }
       else { Motor_SetSpeed(0); integral=0; filtered_rpm=0; motor_start_tick=0; pwm_output=0; }
-      UART_Printf("Target: %.0f RPM | Actual: %.1f RPM | PWM: %.1f\r\n",target_rpm,measured_rpm,pwm_output);
+      VOFA_SendSpeed(measured_rpm, target_rpm);
       OLED_ShowStatus(target_rpm,measured_rpm,pwm_output);
     }
     HAL_Delay(5);
@@ -254,6 +260,13 @@ static void MX_TIM3_Init(void)
 }
 
 // USART1 初始化
+static void MX_DMA_Init(void)
+{
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+}
+
 static void MX_USART1_UART_Init(void)
 {
   huart1.Instance = USART1;
