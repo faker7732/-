@@ -10,7 +10,8 @@ Mcu.IP3=TIM2
 Mcu.IP4=TIM3
 Mcu.IP5=USART1
 Mcu.IP6=I2C1
-Mcu.IPNb=7
+Mcu.IP7=DMA
+Mcu.IPNb=8
 Mcu.Name=STM32F103C(8-B)Tx
 Mcu.Package=LQFP48
 Mcu.Pin0=PD0-OSC_IN
@@ -152,3 +153,16 @@ I2C1.ClockSpeed=100000
 I2C1.DutyCycle=I2C_DUTYCYCLE_2
 I2C1.AddressingMode=I2C_ADDRESSINGMODE_7BIT
 I2C1.IPParameters=ClockSpeed,DutyCycle,AddressingMode
+
+
+Dma.Request0=USART1_TX
+Dma.RequestsNb=1
+Dma.USART1_TX.0.Instance=DMA1_Channel4
+Dma.USART1_TX.0.Direction=DMA_MEMORY_TO_PERIPH
+Dma.USART1_TX.0.PeriphInc=DMA_PINC_DISABLE
+Dma.USART1_TX.0.MemInc=DMA_MINC_ENABLE
+Dma.USART1_TX.0.PeriphDataAlignment=DMA_PDATAALIGN_BYTE
+Dma.USART1_TX.0.MemDataAlignment=DMA_MDATAALIGN_BYTE
+Dma.USART1_TX.0.Mode=DMA_NORMAL
+Dma.USART1_TX.0.Priority=DMA_PRIORITY_HIGH
+Dma.USART1_TX.0.RequestParameters=Instance,Direction,PeriphInc,MemInc,PeriphDataAlignment,MemDataAlignment,Mode,Priority
