@@ -51,6 +51,8 @@ extern "C" {
 /* USER CODE END EM */
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+extern DMA_HandleTypeDef hdma_usart1_tx;
+extern UART_HandleTypeDef huart1;
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);

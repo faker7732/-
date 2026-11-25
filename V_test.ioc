@@ -166,3 +166,4 @@ Dma.USART1_TX.0.MemDataAlignment=DMA_MDATAALIGN_BYTE
 Dma.USART1_TX.0.Mode=DMA_NORMAL
 Dma.USART1_TX.0.Priority=DMA_PRIORITY_HIGH
 Dma.USART1_TX.0.RequestParameters=Instance,Direction,PeriphInc,MemInc,PeriphDataAlignment,MemDataAlignment,Mode,Priority
+NVIC.USART1_IRQn=true\:1\:1\:false\:false\:true\:true\:true
