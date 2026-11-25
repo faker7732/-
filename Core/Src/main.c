@@ -58,8 +58,8 @@ float target_rpm = 0.0f;       // 目标转速
 float pwm_output = 0.0f;       // PID计算出的PWM输出
 
 // --- PID 参数  ---
-float Kp = 0.12f;
-float Ki = 0.08f;
+float Kp = 0.10f;
+float Ki = 0.04f;
 float integral = 0.0f;
 float filtered_rpm = 0.0f;
 uint32_t motor_start_tick = 0;   
@@ -153,7 +153,7 @@ int main(void)
       int16_t diff_cnt=(int16_t)(current_cnt-last_encoder_cnt); last_encoder_cnt=current_cnt;
       measured_rpm=((float)diff_cnt*60000.0f)/(ENCODER_COUNTS_PER_OUTPUT_REV*SPEED_SAMPLE_MS);
       if(measured_rpm<0) measured_rpm=-measured_rpm;
-      filtered_rpm=0.55f*measured_rpm+0.45f*filtered_rpm;
+      filtered_rpm=0.35f*measured_rpm+0.65f*filtered_rpm;
       if(target_rpm>0.0f){ if(motor_start_tick==0U) motor_start_tick=HAL_GetTick(); float new_pwm=PID_Calc(target_rpm,filtered_rpm); if((HAL_GetTick()-motor_start_tick)<300U&&new_pwm<25.0f)new_pwm=25.0f; pwm_output=new_pwm; Motor_SetSpeed((uint16_t)new_pwm); }
       else { Motor_SetSpeed(0); integral=0; filtered_rpm=0; motor_start_tick=0; pwm_output=0; }
       VOFA_SendSpeed(measured_rpm, target_rpm);
