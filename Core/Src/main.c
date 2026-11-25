@@ -99,11 +99,11 @@ void Motor_SetSpeed(uint16_t duty)
 float PID_Calc(float target, float actual)
 {
     float error = target - actual;
+    float rpm_rate = (actual - previous_rpm) * 1000.0f / (float)SPEED_SAMPLE_MS;
     float feed_forward = 10.0f + 0.10f * target;
-    integral += Ki * error * ((float)SPEED_SAMPLE_MS / 1000.0f);
-    if (integral > 35.0f) integral = 35.0f;
-    if (integral < -20.0f) integral = -20.0f;
-    float out = feed_forward + Kp * error + integral;
+    float out;
+    previous_rpm = actual;
+    out = feed_forward + Kp * error - Kd * rpm_rate;
     if (out > PWM_MAX) out = PWM_MAX;
     if (out < PWM_MIN) out = PWM_MIN;
     return out;
@@ -155,7 +155,7 @@ int main(void)
       if(measured_rpm<0) measured_rpm=-measured_rpm;
       filtered_rpm=0.35f*measured_rpm+0.65f*filtered_rpm;
       if(target_rpm>0.0f){ if(motor_start_tick==0U) motor_start_tick=HAL_GetTick(); float new_pwm=PID_Calc(target_rpm,filtered_rpm); if((HAL_GetTick()-motor_start_tick)<300U&&new_pwm<25.0f)new_pwm=25.0f; pwm_output=new_pwm; Motor_SetSpeed((uint16_t)new_pwm); }
-      else { Motor_SetSpeed(0); integral=0; filtered_rpm=0; motor_start_tick=0; pwm_output=0; }
+      else { Motor_SetSpeed(0); previous_rpm=0; filtered_rpm=0; motor_start_tick=0; pwm_output=0; }
       VOFA_SendSpeed(measured_rpm, target_rpm);
       OLED_ShowStatus(target_rpm,measured_rpm,pwm_output);
     }
