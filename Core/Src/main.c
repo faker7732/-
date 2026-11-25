@@ -88,6 +88,14 @@ void VOFA_SendSpeed(float actual, float target)
 }
 
 // 增量式 PID 控制函数
+void Motor_SetSpeed(uint16_t duty)
+{
+    if (duty > PWM_MAX) duty = PWM_MAX;
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, duty);
+}
+
 float PID_Calc(float target, float actual)
 {
     float error = target - actual;
