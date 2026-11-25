@@ -59,8 +59,8 @@ float pwm_output = 0.0f;       // PID计算出的PWM输出
 
 // --- PID 参数  ---
 float Kp = 0.10f;
-float Ki = 0.04f;
-float integral = 0.0f;
+float Kd = 0.015f;
+float previous_rpm = 0.0f;
 float filtered_rpm = 0.0f;
 uint32_t motor_start_tick = 0;   
 
