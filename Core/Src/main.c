@@ -58,8 +58,8 @@ float target_rpm = 0.0f;       // 目标转速
 float pwm_output = 0.0f;       // PID计算出的PWM输出
 
 // --- PID 参数  ---
-float Kp = 0.10f;
-float Kd = 0.015f;
+float Kp = 0.14f;
+float Kd = 0.006f;
 float previous_rpm = 0.0f;
 float filtered_rpm = 0.0f;
 uint32_t motor_start_tick = 0;   
@@ -100,7 +100,7 @@ float PID_Calc(float target, float actual)
 {
     float error = target - actual;
     float rpm_rate = (actual - previous_rpm) * 1000.0f / (float)SPEED_SAMPLE_MS;
-    float feed_forward = 10.0f + 0.10f * target;
+    float feed_forward = 10.0f + 0.18f * target;
     float out;
     previous_rpm = actual;
     out = feed_forward + Kp * error - Kd * rpm_rate;
